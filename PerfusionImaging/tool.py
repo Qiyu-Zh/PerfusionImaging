@@ -17,6 +17,32 @@ def scan_time_vector(dcm_files):
     scan_times.sort()
     return scan_times
 
+def find_bounding_box(mask, offset=(0, 0, 0)):
+    dims = mask.shape
+    non_zero_indices = np.argwhere(mask)
+
+    if non_zero_indices.size == 0:
+        return None  # Return None if the mask is empty
+
+    # Compute min and max for each dimension
+    min_x = max(0, np.min(non_zero_indices[:, 0]) - offset[0])
+    max_x = min(dims[0] - 1, np.max(non_zero_indices[:, 0]) + offset[0]) + 1
+
+    min_y = max(0, np.min(non_zero_indices[:, 1]) - offset[1])
+    max_y = min(dims[1] - 1, np.max(non_zero_indices[:, 1]) + offset[1]) + 1
+
+    min_z = max(0, np.min(non_zero_indices[:, 2]) - offset[2])
+    max_z = min(dims[2] - 1, np.max(non_zero_indices[:, 2]) + offset[2]) + 1
+
+    # Validate bounding box
+    if min_x > dims[0] - 1 or max_x < 0 or min_y > dims[1] - 1 or max_y < 0 or min_z > dims[2] - 1 or max_z < 0:
+        raise ValueError("Offset is too large, resulting in an invalid bounding box.")
+
+    return min_x, max_x, min_y, max_y, min_z, max_z
+    
+def crop_array(array, box):
+    return array[box[0]:box[1], box[2]:box[3], box[4]:box[5]]
+    
 def get_voxel_size(dicom_file):
 
     dcm = pydicom.dcmread(dicom_file)
