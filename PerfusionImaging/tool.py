@@ -1,3 +1,10 @@
+import SimpleITK as sitk
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+from scipy import ndimage
+import pydicom
+
 def scan_time_vector(dcm_files):
     def dcm_time_to_sec(dcm_time):
         hr = float(dcm_time[0:2])
