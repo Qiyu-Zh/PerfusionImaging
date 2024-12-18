@@ -11,38 +11,13 @@ def scan_time_vector(dcm_files):
         dcm = pydicom.dcmread(dcm_file)
         # Extract Content Time and convert to seconds
         content_time = dcm.get("ContentTime")  # Default to "000000.00" if missing
+        # print(content_time)
         scan_time = dcm_time_to_sec(content_time)
         scan_times.append(scan_time)
     # Sort scan times
     scan_times.sort()
     return scan_times
 
-def find_bounding_box(mask, offset=(0, 0, 0)):
-    dims = mask.shape
-    non_zero_indices = np.argwhere(mask)
-
-    if non_zero_indices.size == 0:
-        return None  # Return None if the mask is empty
-
-    # Compute min and max for each dimension
-    min_x = max(0, np.min(non_zero_indices[:, 0]) - offset[0])
-    max_x = min(dims[0] - 1, np.max(non_zero_indices[:, 0]) + offset[0]) + 1
-
-    min_y = max(0, np.min(non_zero_indices[:, 1]) - offset[1])
-    max_y = min(dims[1] - 1, np.max(non_zero_indices[:, 1]) + offset[1]) + 1
-
-    min_z = max(0, np.min(non_zero_indices[:, 2]) - offset[2])
-    max_z = min(dims[2] - 1, np.max(non_zero_indices[:, 2]) + offset[2]) + 1
-
-    # Validate bounding box
-    if min_x > dims[0] - 1 or max_x < 0 or min_y > dims[1] - 1 or max_y < 0 or min_z > dims[2] - 1 or max_z < 0:
-        raise ValueError("Offset is too large, resulting in an invalid bounding box.")
-
-    return min_x, max_x, min_y, max_y, min_z, max_z
-    
-def crop_array(array, box):
-    return array[box[0]:box[1], box[2]:box[3], box[4]:box[5]]
-    
 def get_voxel_size(dicom_file):
 
     dcm = pydicom.dcmread(dicom_file)
@@ -59,9 +34,9 @@ def get_voxel_size(dicom_file):
 def compute_aif(dcm, x, y, r):
     
     mean_values = []
-    for z in range(dcm.shape[0]):
+    for z in range(dcm.shape[2]):
         # Get the 2D slice
-        slice_data = dcm[z, :, :]
+        slice_data = dcm[:, :, z]
 
         # Create a boolean mask for the circle
         rows, cols = slice_data.shape
@@ -78,13 +53,12 @@ def compute_aif(dcm, x, y, r):
         mean_values.append(mean_value)
 
     return mean_values
+
 def gamma(x, p, time_vec_end, aif_vec_end):
     p1, p2 = p
     eps = np.finfo(float).eps  # Small epsilon to avoid division by zero
-
     # Compute r1
     r1 = (aif_vec_end - p2) / (((time_vec_end / (time_vec_end + eps)) ** p1) * np.exp(p1 * (1 - time_vec_end / (time_vec_end + eps))))
-
     # Compute r2
     r2 = np.where(
         x == 0,
@@ -96,18 +70,24 @@ def gamma(x, p, time_vec_end, aif_vec_end):
 def gamma_curve_fit(time_vec_gamma, aif_vec_gamma, time_vec_end, aif_vec_end, p0, lower_bounds=(-100.0, 0.0), upper_bounds=(100.0, 200.0)):
     def gamma_model(x, p1, p2):
         return gamma(x, [p1, p2], time_vec_end, aif_vec_end)
-
     # Perform curve fitting
     bounds = (lower_bounds, upper_bounds)
     fit, pcov = curve_fit(gamma_model, time_vec_gamma, aif_vec_gamma, p0=p0, bounds=bounds)
-
     return fit
+
+def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2):
+    idxes =  [i for i in range(dcm_rest.shape[2]) if np.sum(dcm_mask_rest[:, :, i]) > 100]
+    slice_idx = max([(tool.ssim(dcm_rest[:,:,i], bolus_rest_init), i) for i in idxes])[1]
+    reg_ss_rest = ants.registration(fixed = ants.from_numpy(dcm_rest[:, :, slice_idx]) , moving = ants.from_numpy(bolus_rest_init), type_of_transform ='SyNAggro')['warpedmovout']
+    mask = erode(dcm_mask_rest[:, :, slice_idx], size = erode_size).astype(bool)
+    HD_rest = np.mean(reg_ss_rest[:][mask])
+    return HD_rest
 
 def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, HU_sure_mean, input_conc, tissue_rho=1.053):
     voxel_size = dcm_rest.spacing
 
     # Compute delta time
-    delta_time = time_vec_gamma_rest[-1] - time_vec_gamma_rest[-2]
+    delta_time = time_vec_gamma_rest[-1] - time_vec_gamma_rest[0]
 
     # Compute heart rate
     heart_rate = round(1 / (np.mean(np.diff(time_vec_gamma_rest)) / 60))
@@ -125,17 +105,19 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, 
     delta_hu = np.mean(dcm_rest[dcm_mask_rest]) - HU_sure_mean
 
     # Compute organ volume in-plane (cm^2)
-    organ_vol_inplane = voxel_size[0] * voxel_size[1] / 1000
+    organ_vol_inplane = voxel_size[0] * voxel_size[1] * voxel_size[2]/ 1000
 
     # Compute V1 and V2 mass
     v1_mass = np.sum(v1_arr[dcm_mask_rest]) * organ_vol_inplane
     v2_mass = np.sum(dcm_rest[dcm_mask_rest]) * organ_vol_inplane
 
     # Compute flow (mL/min)
-    flow = (1 / input_conc[0]) * ((v2_mass - v1_mass) / (delta_time / 60))
+    flow = (60 / input_conc) * (v2_mass - v1_mass)
 
     # Compute flow map (mL/min/g)
     flow_map = (dcm_rest - v1_arr) / (np.mean(dcm_rest[dcm_mask_rest]) - HU_sure_mean) * flow
+    
+    flow_std = np.std(flow_map[dcm_mask_rest])
 
     # Compute perfusion map (normalized by organ mass)
     perf_map = flow_map / organ_mass
@@ -156,10 +138,52 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, 
         "v1_mass": v1_mass,
         "v2_mass": v2_mass,
         "flow": flow,
-        "flow_map": flow_map,
-        "perf_map": perf_map,
+        "flow_map": flow_map[:],
+        "flow_std": flow_std,
+        "perf_map": perf_map[:],
         "perf_std": perf_std,
         "perf": perf,
     }
     
     return metrics
+
+def plot3d(CFR_crop, vmax = 2, sample_rate = 5):
+    matplotlib.use('module://ipympl.backend_nbagg')
+    %matplotlib widget
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection="3d")
+
+    x, y, z = np.indices(CFR_crop.shape)
+
+    # Filter the coordinates and CFR values using the mask
+    mask_indices = CFR_crop[:].nonzero()
+    x_masked = x[mask_indices]
+    y_masked = y[mask_indices]
+    z_masked = z[mask_indices]
+    CFR_masked = CFR_crop[mask_indices]
+
+    x_masked = x_masked[::sample_rate]
+    y_masked = y_masked[::sample_rate]
+    z_masked = z_masked[::sample_rate]
+    CFR_masked = CFR_masked[::sample_rate]
+
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.set_zlabel("Z-axis")
+    ax.set_title("Interactive 3D CFR Visualization")
+    # Plot only the masked values
+    scatter = ax.scatter(
+        x_masked,
+        y_masked,
+        z_masked,
+        c=CFR_masked,
+        cmap="jet",
+        vmin=0,
+        vmax=vmax,
+        s=1
+    )
+
+    # Add a colorbar and adjust its position
+    colorbar = fig.colorbar(scatter, ax=ax, shrink=0.6, aspect=15, pad=0.1)
+    colorbar.set_label("CFR Intensity")
+    plt.show()
