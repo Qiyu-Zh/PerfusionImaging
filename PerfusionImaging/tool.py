@@ -88,7 +88,7 @@ def gamma_curve_fit(time_vec_gamma, aif_vec_gamma, time_vec_end, aif_vec_end, p0
     fit, pcov = curve_fit(gamma_model, time_vec_gamma, aif_vec_gamma, p0=p0, bounds=bounds)
     return fit
 
-def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2):
+def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, visual = False):
     def erode(mask = np.ones((6, 6)), size = 2):
         structure = np.ones((2*size + 1, 2*size + 1))
         # Erode the mask
@@ -102,7 +102,16 @@ def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2):
     idxes =  [i for i in range(dcm_rest.shape[2]) if np.sum(dcm_mask_rest[:, :, i]) > 100]
     slice_idx = max([(ssim(dcm_rest[:,:,i], bolus_rest_init), i) for i in idxes])[1]
     reg_ss_rest = ants.registration(fixed = ants.from_numpy(dcm_rest[:, :, slice_idx]) , moving = ants.from_numpy(bolus_rest_init), type_of_transform ='SyNAggro')['warpedmovout']
+    
     mask = erode(dcm_mask_rest[:, :, slice_idx], size = erode_size).astype(bool)
+    if visual:
+        fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(20, 7))
+        print(f"The slice number of {slice_idx} is chosen")
+        ax0.imshow(dcm_rest[:, :, slice_idx], cmap='gray', vmin=0, vmax=300)
+        ax0.imshow(mask[:], alpha= 0.5)
+
+        ax1.imshow(reg_ss_rest[:], cmap='gray', vmin=0, vmax=300)
+        ax1.imshow(mask[:], alpha= 0.5)
     HD_rest = np.mean(reg_ss_rest[:][mask])
     return HD_rest
 
