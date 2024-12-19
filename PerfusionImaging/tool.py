@@ -160,7 +160,6 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, 
 
 def plot3d(CFR_crop, vmax = 2, sample_rate = 5):
     matplotlib.use('module://ipympl.backend_nbagg')
-    %matplotlib widget
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111, projection="3d")
 
