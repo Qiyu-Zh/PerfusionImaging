@@ -14,7 +14,8 @@ setup(
       "matplotlib",
       "numpy",
       "pydicom",
-      "antspyx"
+      "antspyx",
+      "scikit-image"
     ],
     classifiers=[              # Metadata
         "Programming Language :: Python :: 3",
