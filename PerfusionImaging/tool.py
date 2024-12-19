@@ -197,3 +197,9 @@ def plot3d(CFR_crop, vmax = 2, sample_rate = 5):
     colorbar = fig.colorbar(scatter, ax=ax, shrink=0.6, aspect=15, pad=0.1)
     colorbar.set_label("CFR Intensity")
     plt.show()
+
+def mask_fun(img):
+    x = img.copy()
+    x[x > -400] = 1
+    x[x < 0] = 0
+    return x
