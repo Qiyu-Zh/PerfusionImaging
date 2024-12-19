@@ -99,7 +99,7 @@ def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2):
         return structural_similarity(np_image1, np_image2, data_range=data_range)
         
     idxes =  [i for i in range(dcm_rest.shape[2]) if np.sum(dcm_mask_rest[:, :, i]) > 100]
-    slice_idx = max([(tool.ssim(dcm_rest[:,:,i], bolus_rest_init), i) for i in idxes])[1]
+    slice_idx = max([(ssim(dcm_rest[:,:,i], bolus_rest_init), i) for i in idxes])[1]
     reg_ss_rest = ants.registration(fixed = ants.from_numpy(dcm_rest[:, :, slice_idx]) , moving = ants.from_numpy(bolus_rest_init), type_of_transform ='SyNAggro')['warpedmovout']
     mask = erode(dcm_mask_rest[:, :, slice_idx], size = erode_size).astype(bool)
     HD_rest = np.mean(reg_ss_rest[:][mask])
