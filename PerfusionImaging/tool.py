@@ -10,6 +10,7 @@ from scipy import ndimage
 import pydicom
 import ants
 from scipy.optimize import curve_fit
+from skimage.metrics import structural_similarity 
 def scan_time_vector(dcm_files):
     def dcm_time_to_sec(dcm_time):
         hr = float(dcm_time[0:2])
