@@ -13,7 +13,8 @@ setup(
       "scipy",
       "matplotlib",
       "numpy",
-      "pydicom"
+      "pydicom",
+      "antspyx"
     ],
     classifiers=[              # Metadata
         "Programming Language :: Python :: 3",
