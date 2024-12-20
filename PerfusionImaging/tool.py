@@ -115,7 +115,12 @@ def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, 
     HD_rest = np.mean(reg_ss_rest[:][mask])
     return HD_rest
 
-def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, HU_sure_mean, input_conc, tissue_rho=1.053):
+def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, time_vec_gamma_rest, input_conc, tissue_rho=1.053):
+    try:
+        v1_arr = dcm_rest.copy()
+        v1_arr[dcm_mask_rest] = v1
+    except:
+        v1_arr = v1.copy()
     voxel_size = dcm_rest.spacing
 
     # Compute delta time
@@ -134,7 +139,7 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, 
     )
 
     # Compute delta HU
-    delta_hu = np.mean(dcm_rest[dcm_mask_rest]) - HU_sure_mean
+    delta_hu = np.mean(dcm_rest[dcm_mask_rest]) - np.mean(v1_arr[dcm_mask_rest])
 
     # Compute organ volume in-plane (cm^2)
     organ_vol_inplane = voxel_size[0] * voxel_size[1] * voxel_size[2]/ 1000
@@ -147,7 +152,7 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, 
     flow = (60 / input_conc) * (v2_mass - v1_mass)
 
     # Compute flow map (mL/min/g)
-    flow_map = (dcm_rest - v1_arr) / (np.mean(dcm_rest[dcm_mask_rest]) - HU_sure_mean) * flow
+    flow_map = (dcm_rest - v1_arr) / (np.mean(dcm_rest[dcm_mask_rest]) - np.mean(v1_arr[dcm_mask_rest])) * flow
     
     flow_std = np.std(flow_map[dcm_mask_rest])
 
@@ -178,7 +183,6 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1_arr, time_vec_gamma_rest, 
     }
     
     return metrics
-
 def plot3d(CFR_crop, vmax = 2, sample_rate = 5):
     matplotlib.use('module://ipympl.backend_nbagg')
     fig = plt.figure(figsize=(8, 8))
