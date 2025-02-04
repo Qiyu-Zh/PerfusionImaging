@@ -121,8 +121,8 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, time_vec_gamma_rest, inpu
         v1_arr[dcm_mask_rest] = v1
     except:
         v1_arr = v1.copy()
-    v1_arr[dcm_mask_rest] = 0
-    dcm_rest[dcm_mask_rest] = 0
+    v1_arr[not dcm_mask_rest] = 0
+    dcm_rest[not dcm_mask_rest] = 0
     voxel_size = dcm_rest.spacing
 
     # Compute delta time
