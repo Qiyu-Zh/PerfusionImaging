@@ -88,18 +88,18 @@ def gamma_curve_fit(time_vec_gamma, aif_vec_gamma, time_vec_end, aif_vec_end, p0
     bounds = (lower_bounds, upper_bounds)
     fit, pcov = curve_fit(gamma_model, time_vec_gamma, aif_vec_gamma, p0=p0, bounds=bounds)
     return fit
-
-def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, visual = False):
-    def erode(mask = np.ones((6, 6)), size = 2):
-        structure = np.ones((2*size + 1, 2*size + 1))
-        # Erode the mask
-        eroded_mask = ndimage.binary_erosion(mask, structure).astype(mask.dtype)
-        return eroded_mask
     
-    def ssim(np_image1, np_image2):
+def erode(mask = np.ones((6, 6)), size = 2):
+    structure = np.ones((2*size + 1, 2*size + 1))
+    # Erode the mask
+    eroded_mask = ndimage.binary_erosion(mask, structure).astype(mask.dtype)
+    return eroded_mask
+    
+def ssim(np_image1, np_image2):
         data_range = np.max([np_image1.max(), np_image2.max()]) - np.min([np_image1.min(), np_image2.min()])
-        return structural_similarity(np_image1, np_image2, data_range=data_range)
-        
+        return structural_similarity(np_image1, np_image2, data_range=data_range)    
+    
+def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, visual = False):
     idxes =  [i for i in range(dcm_rest.shape[2]) if np.sum(dcm_mask_rest[:, :, i]) > 100]
     slice_idx = max([(ssim(dcm_rest[:,:,i], bolus_rest_init), i) for i in idxes])[1]
     reg_ss_rest = ants.registration(fixed = ants.from_numpy(dcm_rest[:, :, slice_idx]) , moving = ants.from_numpy(bolus_rest_init), type_of_transform ='SyNAggro')['warpedmovout']
