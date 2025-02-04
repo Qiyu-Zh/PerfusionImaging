@@ -11,6 +11,7 @@ import pydicom
 import ants
 from scipy.optimize import curve_fit
 from skimage.metrics import structural_similarity 
+from scipy.integrate import trapezoid
 def scan_time_vector(dcm_files):
     def dcm_time_to_sec(dcm_time):
         hr = float(dcm_time[0:2])
@@ -115,6 +116,58 @@ def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, 
     HD_rest = np.mean(reg_ss_rest[:][mask])
     return HD_rest
 
+def gamma_plot(ax1, times2, ss_rest_value2):
+    baseline_hu = np.mean(ss_rest_value2[:3])
+    p0 = [0.0, baseline_hu]  # Initial guess (0, blood pool offset)
+
+    time_vec_end, aif_vec_end = times2[-1], ss_rest_value2[-1]
+
+    opt_params = gamma_curve_fit(times2, ss_rest_value2, time_vec_end, aif_vec_end, p0)
+    x_fit = np.linspace(np.min(times2), np.max(times2), 500)
+    y_fit = gamma(x_fit, opt_params, time_vec_end, aif_vec_end)
+
+
+    baseline_hu = y_fit[0]
+
+    # Adjust y values by subtracting baseline and taking max(0, y)
+    dense_y_fit_adjusted = np.maximum(y_fit - baseline_hu, 0)
+
+    # Compute the area under the curve using trapezoidal integration
+    area_under_curve = trapezoid(dense_y_fit_adjusted, x_fit)
+    # Generate a dense time vector
+    # Compute input concentration
+
+      # Adjust for Python indexing (0-based)
+    ax1.set_title(f"Fitted AIF Curve with aera value as {area_under_curve:.2f}")
+    ax1.set_xlabel("Time Point (s)")
+    ax1.set_ylabel("Intensity (HU)")
+    # Plot the scatter points
+    ax1.scatter(times2, ss_rest_value2, label="Data Points", color="blue")
+    # Plot the fitted curve
+    ax1.plot(x_fit, y_fit, label="Fitted Curve", color="red")
+    # Highlight specific points
+    ax1.scatter(times2[-2], ss_rest_value2[-2], label="Trigger", color="green")
+    ax1.scatter(times2[-1], ss_rest_value2[-1], label="V2", color="orange")
+    # Add legend
+    ax1.legend(loc="upper left")
+    # Generate AUC plot
+    time_temp = np.linspace(times2[0], times2[-1], int(np.max(times2) * 1))
+    # Create a denser AUC plot
+    n_points = 1000  # Number of points for denser interpolation
+    time_temp_dense = np.linspace(time_temp[0], time_temp[-1], n_points)
+    auc_area_dense = gamma(time_temp_dense, opt_params, time_vec_end, aif_vec_end) - baseline_hu
+
+    # Add vertical lines for AUC visualization
+    for i in range(len(auc_area_dense)):
+        ax1.plot(
+            [time_temp_dense[i], time_temp_dense[i]],
+            [baseline_hu, auc_area_dense[i] + baseline_hu],
+            color="cyan",
+            linewidth=1,
+            alpha=0.2
+        )
+    return area_under_curve
+    
 def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, time_vec_gamma_rest, input_conc, tissue_rho=1.053):
     try:
         v1_arr = dcm_rest.copy()
