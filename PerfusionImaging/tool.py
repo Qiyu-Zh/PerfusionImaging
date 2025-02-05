@@ -8,10 +8,10 @@ import matplotlib.pyplot as plt
 import matplotlib
 from scipy import ndimage
 import pydicom
-import ants
 from scipy.optimize import curve_fit
-from skimage.metrics import structural_similarity 
 from scipy.integrate import trapezoid
+import ants
+from skimage.metrics import structural_similarity 
 def scan_time_vector(dcm_files):
     def dcm_time_to_sec(dcm_time):
         hr = float(dcm_time[0:2])
@@ -88,35 +88,8 @@ def gamma_curve_fit(time_vec_gamma, aif_vec_gamma, time_vec_end, aif_vec_end, p0
     bounds = (lower_bounds, upper_bounds)
     fit, pcov = curve_fit(gamma_model, time_vec_gamma, aif_vec_gamma, p0=p0, bounds=bounds)
     return fit
-    
-def erode(mask = np.ones((6, 6)), size = 2):
-    structure = np.ones((2*size + 1, 2*size + 1))
-    # Erode the mask
-    eroded_mask = ndimage.binary_erosion(mask, structure).astype(mask.dtype)
-    return eroded_mask
-    
-def ssim(np_image1, np_image2):
-        data_range = np.max([np_image1.max(), np_image2.max()]) - np.min([np_image1.min(), np_image2.min()])
-        return structural_similarity(np_image1, np_image2, data_range=data_range)    
-    
-def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, visual = False):
-    idxes =  [i for i in range(dcm_rest.shape[2]) if np.sum(dcm_mask_rest[:, :, i]) > 100]
-    slice_idx = max([(ssim(dcm_rest[:,:,i], bolus_rest_init), i) for i in idxes])[1]
-    reg_ss_rest = ants.registration(fixed = ants.from_numpy(dcm_rest[:, :, slice_idx]) , moving = ants.from_numpy(bolus_rest_init), type_of_transform ='SyNAggro')['warpedmovout']
-    
-    mask = erode(dcm_mask_rest[:, :, slice_idx], size = erode_size).astype(bool)
-    if visual:
-        fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(20, 7))
-        print(f"The slice number of {slice_idx} is chosen")
-        ax0.imshow(dcm_rest[:, :, slice_idx], cmap='gray', vmin=0, vmax=300)
-        ax0.imshow(mask[:], alpha= 0.5)
 
-        ax1.imshow(reg_ss_rest[:], cmap='gray', vmin=0, vmax=300)
-        ax1.imshow(mask[:], alpha= 0.5)
-    HD_rest = np.mean(reg_ss_rest[:][mask])
-    return HD_rest
-
-def gamma_plot(ax1, times2, ss_rest_value2):
+def gamma_plot(ax1, times2, ss_rest_value2, triger = True):
     baseline_hu = np.mean(ss_rest_value2[:3])
     p0 = [0.0, baseline_hu]  # Initial guess (0, blood pool offset)
 
@@ -138,7 +111,7 @@ def gamma_plot(ax1, times2, ss_rest_value2):
     # Compute input concentration
 
       # Adjust for Python indexing (0-based)
-    ax1.set_title(f"Fitted AIF Curve with aera value as {area_under_curve:.2f}")
+    ax1.set_title(f"Fitted AIF Curve with AUC as {area_under_curve:.2f}")
     ax1.set_xlabel("Time Point (s)")
     ax1.set_ylabel("Intensity (HU)")
     # Plot the scatter points
@@ -146,7 +119,8 @@ def gamma_plot(ax1, times2, ss_rest_value2):
     # Plot the fitted curve
     ax1.plot(x_fit, y_fit, label="Fitted Curve", color="red")
     # Highlight specific points
-    ax1.scatter(times2[-2], ss_rest_value2[-2], label="Trigger", color="green")
+    if triger:
+        ax1.scatter(times2[-2], ss_rest_value2[-2], label="Trigger", color="green")
     ax1.scatter(times2[-1], ss_rest_value2[-1], label="V2", color="orange")
     # Add legend
     ax1.legend(loc="upper left")
@@ -167,15 +141,44 @@ def gamma_plot(ax1, times2, ss_rest_value2):
             alpha=0.2
         )
     return area_under_curve
+
+def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, visual = False):
+    def erode(mask = np.ones((6, 6)), size = 2):
+        structure = np.ones((2*size + 1, 2*size + 1))
+        # Erode the mask
+        eroded_mask = ndimage.binary_erosion(mask, structure).astype(mask.dtype)
+        return eroded_mask
     
+    def ssim(np_image1, np_image2):
+        data_range = np.max([np_image1.max(), np_image2.max()]) - np.min([np_image1.min(), np_image2.min()])
+        return structural_similarity(np_image1, np_image2, data_range=data_range)
+        
+    idxes =  [i for i in range(dcm_rest.shape[2]) if np.sum(dcm_mask_rest[:, :, i]) > 100]
+    slice_idx = max([(ssim(dcm_rest[:,:,i], bolus_rest_init), i) for i in idxes])[1]
+    reg_ss_rest = ants.registration(fixed = ants.from_numpy(dcm_rest[:, :, slice_idx]) , moving = ants.from_numpy(bolus_rest_init), type_of_transform ='SyNAggro')['warpedmovout']
+    
+    mask = erode(dcm_mask_rest[:, :, slice_idx], size = erode_size).astype(bool)
+    if visual:
+        fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(20, 7))
+        print(f"The slice number of {slice_idx} is chosen")
+        ax0.imshow(dcm_rest[:, :, slice_idx], cmap='gray', vmin=0, vmax=300)
+        ax0.imshow(mask[:], alpha= 0.5)
+        ax0.set_title("V2 with Mask")
+
+        ax1.imshow(reg_ss_rest[:], cmap='gray', vmin=0, vmax=300)
+        ax1.imshow(mask[:], alpha= 0.5)
+        ax1.set_title("Registed Surestart with Mask")
+    HD_rest = np.mean(reg_ss_rest[:][mask])
+    return HD_rest
+
 def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, time_vec_gamma_rest, input_conc, tissue_rho=1.053):
     try:
         v1_arr = dcm_rest.copy()
         v1_arr[dcm_mask_rest] = v1
     except:
         v1_arr = v1.copy()
-    v1_arr[~mask[:].astype(bool)] = 0
-    dcm_rest[~mask[:].astype(bool)] = 0
+    v1_arr[~dcm_mask_rest[:].astype(bool)] = 0
+    dcm_rest[~dcm_mask_rest[:].astype(bool)] = 0
     voxel_size = dcm_rest.spacing
 
     # Compute delta time
@@ -238,8 +241,10 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, time_vec_gamma_rest, inpu
     }
     
     return metrics
+
 def plot3d(CFR_crop, vmax = 2, sample_rate = 5):
     matplotlib.use('module://ipympl.backend_nbagg')
+
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111, projection="3d")
 
@@ -273,11 +278,14 @@ def plot3d(CFR_crop, vmax = 2, sample_rate = 5):
         s=1
     )
 
+
     # Add a colorbar and adjust its position
     colorbar = fig.colorbar(scatter, ax=ax, shrink=0.6, aspect=15, pad=0.1)
     colorbar.set_label("CFR Intensity")
     plt.show()
-
+    
+    
+    
 def mask_fun(img):
     x = img.copy()
     x[x > -400] = 1
