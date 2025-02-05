@@ -12,9 +12,9 @@ setup(
       "IPython",
       "scipy",
       "matplotlib",
-      "numpy",
+      "numpy==1.25",
       "pydicom",
-      "antspyx",
+      "antspyx==0.4.2",
       "scikit-image"
     ],
     classifiers=[              # Metadata
