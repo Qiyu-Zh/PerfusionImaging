@@ -1,5 +1,4 @@
 from setuptools import setup, find_packages
-import os
 
 setup(
     name='PerfusionImaging',
@@ -15,7 +14,9 @@ setup(
       "numpy==1.25",
       "pydicom",
       "antspyx==0.4.2",
-      "scikit-image"
+      "scikit-image",
+      "shapely",
+      "tqdm"
     ],
     classifiers=[              # Metadata
         "Programming Language :: Python :: 3",
