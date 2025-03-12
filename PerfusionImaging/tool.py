@@ -12,6 +12,101 @@ from scipy.optimize import curve_fit
 from scipy.integrate import trapezoid
 import ants
 from skimage.metrics import structural_similarity 
+from shapely.geometry import Point, Polygon
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+
+from shapely.geometry import Point, Polygon
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+def classify_CFR_region(stress_values, cfr_values, visualization=False, sample_rate = 1):
+    labels = ["Normal Flow", "Minimally Reduced", "Mildly Reduced", 
+              "Moderately Reduced Flow Capacity", "Myocardial Steal", 
+              "Definite Ischemia", "Predominantly Transmural Myocardial Scar"]
+    print("The labels order will be:", labels)
+    colors = {
+        "Normal Flow": "#FF0000",  # Brown
+        "Minimally Reduced": "#FF8C00",  # Orange
+        "Mildly Reduced": "#FFD700",  # Yellow
+        "Moderately Reduced Flow Capacity": "#008000",  # Green
+        "Definite Ischemia": "#0000FF",  # Blue
+        "Myocardial Steal": "#4B0082",  # Dark Blue
+        "Predominantly Transmural Myocardial Scar": "#000000"  # Black
+    }
+    
+    # Define the CFR regions as polygons
+    regions = {
+        "Normal Flow": Polygon([(3.37/5, 3.37), (2.39, 3.37), (2.39, 2.39/2), (10, 5), (10, 10), (2, 10)]),
+        "Minimally Reduced": Polygon([(1.76, 0.88), (1.76, 2.7), (0.54, 2.7), (3.37/5, 3.37), (2.39, 3.37), (2.39, 2.39/2)]),
+        "Mildly Reduced": Polygon([(0.406, 2.03), (1.12, 2.03), (1.12, 0.56), (1.76, 0.88), (1.76, 2.7), (0.54, 2.7)]),
+        "Moderately Reduced Flow Capacity": Polygon([(1.74/5, 1.74), (0.91, 1.74), (0.91, 0.91/2), (1.12, 0.56), (1.12, 2.03), (0.406, 2.03)]),
+        "Myocardial Steal": Polygon([(1/5, 1), (1.74/5, 1.74), (0.91, 1.74), (0.91, 1)]),
+        "Definite Ischemia": Polygon([(0, 0), (1/5, 1), (0.91, 1), (0.91, 0.91/2)]),
+        "Predominantly Transmural Myocardial Scar": Polygon([(0, 0), (2, 10), (0, 10)]),
+    }
+
+    # Ensure inputs are NumPy arrays and handle 3D arrays
+    stress_values = np.array(stress_values)
+    cfr_values = np.array(cfr_values)
+
+    # Validate input shapes
+    if stress_values.shape != cfr_values.shape:
+        raise ValueError("stress_values and cfr_values must have the same shape")
+
+    # Initialize 3D arrays for labels and indices
+    label_names = np.empty(stress_values.shape, dtype=object)
+    label_indices = stress_values.copy()
+    valid_indices = np.argwhere(~np.isnan(stress_values) & ~np.isnan(cfr_values))
+
+    # Iterate only over valid indices
+    
+    # Iterate over each voxel in the 3D arrays
+    if visualization:
+        fig, ax = plt.subplots(figsize=(10, 10))
+        for label, polygon in regions.items():
+            x, y = polygon.exterior.xy  # Get polygon boundary coordinates
+            ax.fill(x, y, alpha=1, label=label, color=colors[label])
+            
+    for i in tqdm(range(len(valid_indices))):
+        idx = tuple(valid_indices[i])  # Convert index array to tuple for proper indexing
+        stress = stress_values[idx]
+        cfr = cfr_values[idx]
+        point = Point(stress, cfr)  # Create a point object
+
+        # Check if the point is inside any region
+        min_distance = float("inf")
+        closest_region = "Outside Defined Regions"
+        closest_index = -1
+
+        for label, polygon in regions.items():
+            if polygon.contains(point):
+                label_names[idx] = label
+                label_indices[idx] = labels.index(label)
+                break  # Stop checking if a match is found
+            else:
+                # Compute distance from point to polygon
+                distance = polygon.exterior.distance(point)
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_region = label
+                    closest_index = labels.index(label)
+        else:
+            label_names[idx] = closest_region  # Assign the closest region
+            label_indices[idx] = closest_index
+        if visualization and i % sample_rate == 0:
+            ax.scatter(stress, cfr, color='red', marker='o', s=10)
+
+    # Complete visualization setup
+    if visualization:
+        ax.set_xlabel("Stress Perfusion (cc/min/gm)")
+        ax.set_ylabel("Coronary Flow Reserve (CFR)")
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.legend(loc="lower right")  # Move legend to lower-left corner
+        ax.set_title("CFR Classification Regions")
+        plt.show()
+    return label_indices, label_names
+
 def scan_time_vector(dcm_files):
     def dcm_time_to_sec(dcm_time):
         hr = float(dcm_time[0:2])
@@ -89,27 +184,41 @@ def gamma_curve_fit(time_vec_gamma, aif_vec_gamma, time_vec_end, aif_vec_end, p0
     fit, pcov = curve_fit(gamma_model, time_vec_gamma, aif_vec_gamma, p0=p0, bounds=bounds)
     return fit
 
-def gamma_plot(ax1, times2, ss_rest_value2, triger = True):
-    baseline_hu = np.mean(ss_rest_value2[:3])
+def gamma_plot(ax1, times2, ss_rest_value2, triger = False , triger_gap = 80, TTP = 7.5):
+    baseline_hu = np.mean(ss_rest_value2[0])
     p0 = [0.0, baseline_hu]  # Initial guess (0, blood pool offset)
-
-    time_vec_end, aif_vec_end = times2[-1], ss_rest_value2[-1]
-
+    idx = np.argmax(ss_rest_value2)
+    time_vec_end, aif_vec_end = times2[idx], ss_rest_value2[idx]
     opt_params = gamma_curve_fit(times2, ss_rest_value2, time_vec_end, aif_vec_end, p0)
-    x_fit = np.linspace(np.min(times2), np.max(times2), 500)
+    x_fit = np.linspace(np.min(times2), times2[-1], 1000)
     y_fit = gamma(x_fit, opt_params, time_vec_end, aif_vec_end)
-
-
+    
+    if triger:
+        
+        triger_xfit_idx = np.argwhere(y_fit - y_fit[0] - triger_gap >= 0)[0, 0]
+        
+        
+        idx2 = np.argmin(np.abs(times2 - x_fit[triger_xfit_idx] - TTP))
+        time_vec_end, aif_vec_end = times2[idx2], ss_rest_value2[idx2]
+  
+        triger_idx = np.argwhere(times2 - x_fit[triger_xfit_idx] >= 0)[0, 0]
+        times2 = times2[:triger_idx] + [x_fit[triger_xfit_idx], time_vec_end]
+        ss_rest_value2 = ss_rest_value2[:triger_idx] + [y_fit[triger_xfit_idx], aif_vec_end]
+        opt_params = gamma_curve_fit(times2, ss_rest_value2, time_vec_end, aif_vec_end, p0)
+        x_fit = np.linspace(np.min(times2), times2[-1], 1000)
+        y_fit = gamma(x_fit, opt_params, time_vec_end, aif_vec_end)
+        idx = len(times2) - 1
+    y_fit_idx = np.argmin(np.abs(y_fit - ss_rest_value2[idx])) 
     baseline_hu = y_fit[0]
 
     # Adjust y values by subtracting baseline and taking max(0, y)
-    dense_y_fit_adjusted = np.maximum(y_fit - baseline_hu, 0)
-
+    dense_y_fit_adjusted = np.maximum(y_fit[:y_fit_idx+1] - baseline_hu, 0)
+    
     # Compute the area under the curve using trapezoidal integration
-    area_under_curve = trapezoid(dense_y_fit_adjusted, x_fit)
+    area_under_curve = trapezoid(dense_y_fit_adjusted, x_fit[:y_fit_idx+1])
     # Generate a dense time vector
     # Compute input concentration
-
+    
       # Adjust for Python indexing (0-based)
     ax1.set_title(f"Fitted AIF Curve with AUC as {area_under_curve:.2f}")
     ax1.set_xlabel("Time Point (s)")
@@ -118,10 +227,9 @@ def gamma_plot(ax1, times2, ss_rest_value2, triger = True):
     ax1.scatter(times2, ss_rest_value2, label="Data Points", color="blue")
     # Plot the fitted curve
     ax1.plot(x_fit, y_fit, label="Fitted Curve", color="red")
-    # Highlight specific points
+    # Highlight specific points                
     if triger:
-        ax1.scatter(times2[-2], ss_rest_value2[-2], label="Trigger", color="green")
-    ax1.scatter(times2[-1], ss_rest_value2[-1], label="V2", color="orange")
+        ax1.scatter(times2[-2], ss_rest_value2[-2], label="Triger", color="green")
     # Add legend
     ax1.legend(loc="upper left")
     # Generate AUC plot
@@ -131,8 +239,7 @@ def gamma_plot(ax1, times2, ss_rest_value2, triger = True):
     time_temp_dense = np.linspace(time_temp[0], time_temp[-1], n_points)
     auc_area_dense = gamma(time_temp_dense, opt_params, time_vec_end, aif_vec_end) - baseline_hu
 
-    # Add vertical lines for AUC visualization
-    for i in range(len(auc_area_dense)):
+    for i in range(y_fit_idx+1):
         ax1.plot(
             [time_temp_dense[i], time_temp_dense[i]],
             [baseline_hu, auc_area_dense[i] + baseline_hu],
@@ -140,7 +247,7 @@ def gamma_plot(ax1, times2, ss_rest_value2, triger = True):
             linewidth=1,
             alpha=0.2
         )
-    return area_under_curve
+    return area_under_curve, idx2 if triger else idx 
 
 def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, visual = False):
     def erode(mask = np.ones((6, 6)), size = 2):
@@ -171,21 +278,17 @@ def calculate_mean_hu(dcm_rest, dcm_mask_rest, bolus_rest_init, erode_size = 2, 
     HD_rest = np.mean(reg_ss_rest[:][mask])
     return HD_rest
 
-def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, time_vec_gamma_rest, input_conc, tissue_rho=1.053):
+def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, input_conc, tissue_rho=1.053):
+    dcm_mask_rest = dcm_mask_rest[:].astype(bool)
     try:
         v1_arr = dcm_rest.copy()
         v1_arr[dcm_mask_rest] = v1
     except:
         v1_arr = v1.copy()
-    v1_arr[~dcm_mask_rest[:].astype(bool)] = 0
-    dcm_rest[~dcm_mask_rest[:].astype(bool)] = 0
+    
     voxel_size = dcm_rest.spacing
-
-    # Compute delta time
-    delta_time = time_vec_gamma_rest[-1] - time_vec_gamma_rest[0]
-
-    # Compute heart rate
-    heart_rate = round(1 / (np.mean(np.diff(time_vec_gamma_rest)) / 60))
+    v1_arr[~dcm_mask_rest[:].astype(bool)] = np.nan
+    dcm_rest[~dcm_mask_rest[:].astype(bool)] = np.nan
 
     # Compute organ mass (g)
     organ_mass = (
@@ -225,8 +328,6 @@ def compute_organ_metrics(dcm_rest, dcm_mask_rest, v1, time_vec_gamma_rest, inpu
 
     # Return computed metrics
     metrics = {
-        "delta_time": delta_time,
-        "heart_rate": heart_rate,
         "organ_mass": organ_mass,
         "delta_hu": delta_hu,
         "organ_vol_inplane": organ_vol_inplane,
@@ -287,7 +388,7 @@ def plot3d(CFR_crop, vmax = 2, sample_rate = 5):
     
     
 def mask_fun(img):
-    x = img.copy()
+    x = img[:].copy()
     x[x > -400] = 1
     x[x < 0] = 0
     return x
