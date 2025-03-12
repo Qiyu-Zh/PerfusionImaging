@@ -16,9 +16,7 @@ from shapely.geometry import Point, Polygon
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from shapely.geometry import Point, Polygon
-import matplotlib.pyplot as plt
-from tqdm import tqdm
+
 def classify_CFR_region(stress_values, cfr_values, visualization=False, sample_rate = 1):
     labels = ["Normal Flow", "Minimally Reduced", "Mildly Reduced", 
               "Moderately Reduced Flow Capacity", "Myocardial Steal", 
